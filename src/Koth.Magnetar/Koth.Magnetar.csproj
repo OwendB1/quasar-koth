@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <DS64 Condition="'$(DS64)' == '' and !$([MSBuild]::IsOSPlatform('Windows'))">$(HOME)/.local/share/Steam/steamapps/common/SpaceEngineersDedicatedServer/DedicatedServer64</DS64>
+    <DS64 Condition="'$(DS64)' == ''">C:/Program Files (x86)/Steam/steamapps/common/SpaceEngineersDedicatedServer/DedicatedServer64</DS64>
+    <Magnetar Condition="'$(Magnetar)' == '' and !$([MSBuild]::IsOSPlatform('Windows'))">$(HOME)/.local/share/Magnetar</Magnetar>
+    <Magnetar Condition="'$(Magnetar)' == ''">$(APPDATA)/Magnetar</Magnetar>
+    <MagnetarBin Condition="'$(MagnetarBin)' == '' and Exists('$(Magnetar)/Libraries/MagnetarInterim/PluginSdk.dll')">$(Magnetar)/Libraries/MagnetarInterim</MagnetarBin>
+    <MagnetarBin Condition="'$(MagnetarBin)' == '' and Exists('$(Magnetar)/Libraries/MagnetarLegacy/PluginSdk.dll')">$(Magnetar)/Libraries/MagnetarLegacy</MagnetarBin>
+    <MagnetarBin Condition="'$(MagnetarBin)' == ''">$(Magnetar)/Bin</MagnetarBin>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../Shared/*.cs" Link="Contracts/%(Filename)%(Extension)" />
+    <Reference Include="Sandbox.Game" HintPath="$(DS64)/Sandbox.Game.dll" Private="false" />
+    <Reference Include="Sandbox.Common" HintPath="$(DS64)/Sandbox.Common.dll" Private="false" />
+    <Reference Include="VRage" HintPath="$(DS64)/VRage.dll" Private="false" />
+    <Reference Include="VRage.Game" HintPath="$(DS64)/VRage.Game.dll" Private="false" />
+    <Reference Include="VRage.Library" HintPath="$(DS64)/VRage.Library.dll" Private="false" />
+    <Reference Include="VRage.Math" HintPath="$(DS64)/VRage.Math.dll" Private="false" />
+    <Reference Include="PluginSdk" HintPath="$(MagnetarBin)/PluginSdk.dll" Private="false" />
+    <PackageReference Include="Lib.Harmony" Version="2.4.2" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+  <Target Name="ValidateServerReferences" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(DS64)/Sandbox.Game.dll')" Text="Set DS64 to the DedicatedServer64 directory." />
+    <Error Condition="!Exists('$(MagnetarBin)/PluginSdk.dll')" Text="Set Magnetar or MagnetarBin to the installed Magnetar SDK." />
+  </Target>
+</Project>

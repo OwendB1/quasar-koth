@@ -1,0 +1,24 @@
+name: Check
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: CometWorks/quasar
+          ref: v1.6.0.54
+          path: deps/quasar
+          sparse-checkout: |
+            Quasar.Plugin.Abstractions
+            Docs
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build and test against minimum Quasar version
+        run: >-
+          dotnet run --project tests/Koth.Tests/Koth.Tests.csproj -c Release
+          -p:QuasarPluginAbstractionsProject="$GITHUB_WORKSPACE/deps/quasar/Quasar.Plugin.Abstractions/Quasar.Plugin.Abstractions.csproj"

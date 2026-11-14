@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <QuasarPluginAbstractionsProject Condition="'$(QuasarPluginAbstractionsProject)' == ''">../../../../CometWorks/Quasar/Quasar.Plugin.Abstractions/Quasar.Plugin.Abstractions.csproj</QuasarPluginAbstractionsProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <Compile Include="../Shared/*.cs" Link="Contracts/%(Filename)%(Extension)" />
+    <InternalsVisibleTo Include="Koth.Tests" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(QuasarPluginAbstractionsAssembly)' != ''">
+    <Reference Include="Quasar.Plugin.Abstractions" HintPath="$(QuasarPluginAbstractionsAssembly)" Private="false" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(QuasarPluginAbstractionsAssembly)' == ''">
+    <ProjectReference Include="$(QuasarPluginAbstractionsProject)" Private="false" />
+  </ItemGroup>
+</Project>

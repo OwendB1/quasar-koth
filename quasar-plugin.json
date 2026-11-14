@@ -1,0 +1,19 @@
+{
+  "id": "owendb.koth",
+  "displayName": "King of the Hill",
+  "version": "0.1.0",
+  "entryAssembly": "Koth.Quasar.dll",
+  "entryType": "Koth.Quasar.KothPlugin",
+  "projectPath": "src/Koth.Quasar/Koth.Quasar.csproj",
+  "staticAssets": "src/Koth.Quasar/wwwroot",
+  "stylesheets": ["koth.css"],
+  "browserSdkVersion": 1,
+  "quasarVersion": ">=1.6.0.54",
+  "companionPlugins": [
+    {
+      "id": "owendb.koth",
+      "projectPath": "src/Koth.Magnetar/Koth.Magnetar.csproj",
+      "entryAssembly": "Koth.Magnetar.dll"
+    }
+  ]
+}

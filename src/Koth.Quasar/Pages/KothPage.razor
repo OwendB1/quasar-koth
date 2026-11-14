@@ -1,0 +1,154 @@
+@page "/koth"
+@using System.Text.Json
+@using Koth.Contracts
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Web
+@using global::Quasar.Plugin.Abstractions.Operations
+@using global::Quasar.Plugin.Abstractions.Security
+@using Microsoft.Extensions.DependencyInjection
+@attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
+@implements IDisposable
+@inject IQuasarOperationDispatcher Dispatcher
+@inject AuthenticationStateProvider Authentication
+@inject IServiceProvider Services
+
+<PageTitle>King of the Hill</PageTitle>
+<section class="koth-page" aria-labelledby="koth-title" aria-busy="@busy">
+    <header>
+        <h1 id="koth-title">King of the Hill</h1>
+        <p>Live faction scores from your KOTH worlds.</p>
+    </header>
+    @if (error.Length > 0) { <p class="koth-error" role="alert">@error</p> }
+    @if (message.Length > 0) { <p role="status">@message</p> }
+    <div class="koth-toolbar">
+        <label for="koth-server">Game server or node</label>
+        <select id="koth-server" value="@selected" @onchange="ChangeServer" disabled="@busy">
+            <option value="">Select a server</option>
+            @foreach (var server in servers) { <option value="@server.ServerId">@server.DisplayName</option> }
+        </select>
+        <button type="button" @onclick="Refresh" disabled="@busy">Refresh</button>
+    </div>
+    @if (servers.Count == 0) { <p>No game servers are connected. Start a managed server with the companion enabled.</p> }
+    @if (snapshot != null)
+    {
+        <p role="status">@snapshot.Status</p>
+        @if (snapshot.Available)
+        {
+            <p>World: <strong>@snapshot.World</strong> · Read at @snapshot.CapturedUtc.ToLocalTime().ToString("g")</p>
+            @if (servers.FirstOrDefault(s => s.ServerId == selected)?.ClusterId.Length > 0)
+            { <p>These are this node's scores. Replicated scores are not added together. Cluster reset is unavailable.</p> }
+            <div class="koth-table-scroll" tabindex="0" role="region" aria-label="KOTH faction scores">
+                <table>
+                    <caption>Scores by planet and faction</caption>
+                    <thead><tr><th scope="col">Planet</th><th scope="col">Faction</th><th scope="col">Tag</th><th scope="col">Points</th><th scope="col">Last scoring grid</th></tr></thead>
+                    <tbody>
+                        @foreach (var score in snapshot.Scores)
+                        { <tr><td>@score.Planet</td><th scope="row">@score.FactionName</th><td>@score.FactionTag</td><td>@score.Points</td><td>@score.GridName</td></tr> }
+                    </tbody>
+                </table>
+            </div>
+            @if (snapshot.Scores.Count == 0) { <p>No KOTH scores yet.</p> }
+            <AuthorizeView Policy="@QuasarPolicyNames.CanControlServers">
+                <details class="koth-card">
+                    <summary>Reset all KOTH scores</summary>
+                    <p>This clears every faction's score in this world. A verified XML backup is saved first. Capture progress and prizes remain controlled by the mod.</p>
+                    <p>@snapshot.ResetStatus</p>
+                    <dl><dt>Server ID</dt><dd><code>@selected</code></dd><dt>World stream ID</dt><dd><code>@snapshot.StreamId</code></dd></dl>
+                    <label for="koth-reset-confirm">Type RESET to confirm</label>
+                    <input id="koth-reset-confirm" @bind="confirmation" autocomplete="off" disabled="@busy" />
+                    <button type="button" class="koth-danger" @onclick="Reset" disabled="@(busy || !snapshot.ResetSupported || confirmation != "RESET" || servers.FirstOrDefault(s => s.ServerId == selected)?.ClusterId.Length > 0)">Back up and reset scores</button>
+                </details>
+            </AuthorizeView>
+        }
+    }
+    <AuthorizeView Policy="@QuasarPolicyNames.CanManageDiscord">
+        <section class="koth-card" aria-labelledby="koth-discord-title">
+            <h2 id="koth-discord-title">Discord announcements</h2>
+            <p>Use Quasar's existing bot with a dedicated KOTH text channel in its configured Discord server.</p>
+            <p id="koth-channel-help">In Discord, enable Developer Mode under Advanced settings, then right-click the KOTH channel and choose Copy Channel ID. Give Quasar's bot View Channel and Send Messages permissions.</p>
+            <label for="koth-channel">KOTH channel ID</label>
+            <input id="koth-channel" inputmode="numeric" maxlength="20" @bind="channelId" aria-describedby="koth-channel-help" disabled="@busy" />
+            <label class="koth-check"><input type="checkbox" @bind="announcementsEnabled" disabled="@busy" /> Send capture announcements</label>
+            <div class="koth-toolbar">
+                <button type="button" @onclick="SaveSettings" disabled="@busy">Save Discord settings</button>
+                <button type="button" @onclick="TestDiscord" disabled="@busy">Test saved channel</button>
+            </div>
+            <p role="status">@deliveryMessage</p>
+        </section>
+    </AuthorizeView>
+    <footer><a href="https://github.com/OwendB1/quasar-koth">KOTH plugin source code</a> · AGPL-3.0-only</footer>
+</section>
+
+@code {
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    private readonly CancellationTokenSource lifetime = new();
+    private IReadOnlyList<KothServer> servers = [];
+    private KothSnapshot? snapshot;
+    private string selected = "", error = "", message = "", confirmation = "", channelId = "", deliveryMessage = "";
+    private bool busy, announcementsEnabled;
+    protected override async Task OnInitializedAsync() => await Run(async () =>
+    {
+        servers = await Call<IReadOnlyList<KothServer>>("servers.list", new { });
+        var user = (await Authentication.GetAuthenticationStateAsync()).User;
+        var authorization = Services.GetRequiredService<IAuthorizationService>();
+        if ((await authorization.AuthorizeAsync(user, QuasarPolicyNames.CanManageDiscord)).Succeeded)
+        {
+            var settings = await Call<KothSettings>("settings.read", new { });
+            channelId = settings.DiscordChannelId; announcementsEnabled = settings.AnnouncementsEnabled;
+        }
+        if (servers.Count == 1) { selected = servers[0].ServerId; await LoadScores(); }
+    });
+    private async Task<T> Call<T>(string operation, object request)
+    {
+        var user = (await Authentication.GetAuthenticationStateAsync()).User;
+        var result = await Dispatcher.DispatchAsync(new(user, Services), KothProtocol.PluginId, operation,
+            JsonSerializer.SerializeToElement(request, Json), lifetime.Token);
+        if (result.StatusCode != 200) throw new InvalidOperationException(result.Error ?? "KOTH operation was refused.");
+        return (T)result.Value!;
+    }
+    private async Task Run(Func<Task> action)
+    {
+        if (busy) return;
+        busy = true; error = ""; message = "";
+        try { await action(); }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        catch (Exception failure) { error = failure.GetBaseException().Message; }
+        finally { busy = false; }
+    }
+    private Task ChangeServer(ChangeEventArgs args) => Run(async () =>
+    {
+        selected = args.Value?.ToString() ?? ""; snapshot = null; confirmation = "";
+        if (selected.Length > 0) await LoadScores();
+    });
+    private Task Refresh() => Run(async () =>
+    {
+        servers = await Call<IReadOnlyList<KothServer>>("servers.list", new { });
+        confirmation = ""; snapshot = null;
+        if (selected.Length > 0) await LoadScores();
+    });
+    private async Task LoadScores()
+    {
+        snapshot = await Call<KothSnapshot>("scores.read", new ServerRequest(selected));
+        var user = (await Authentication.GetAuthenticationStateAsync()).User;
+        if ((await Services.GetRequiredService<IAuthorizationService>().AuthorizeAsync(user, QuasarPolicyNames.CanManageDiscord)).Succeeded)
+            deliveryMessage = (await Call<DeliveryStatus>("discord.status", new ServerRequest(selected))).Message;
+    }
+    private Task SaveSettings() => Run(async () =>
+    {
+        await Call<KothSettings>("settings.set", new KothSettings(announcementsEnabled, channelId.Trim()));
+        message = "KOTH Discord settings saved.";
+    });
+    private Task TestDiscord() => Run(async () =>
+    {
+        await Call<bool>("discord.test", new { }); message = "Test message sent through Quasar's bot.";
+    });
+    private Task Reset() => Run(async () =>
+    {
+        if (snapshot == null) return;
+        var result = await Call<ResetResult>("scores.reset", new ResetScoresRequest(selected, snapshot.StreamId, confirmation));
+        snapshot = result.Snapshot; confirmation = ""; message = "Scores reset. Backup in KOTH world storage: " + result.BackupFile;
+    });
+    public void Dispose() { lifetime.Cancel(); lifetime.Dispose(); }
+}
