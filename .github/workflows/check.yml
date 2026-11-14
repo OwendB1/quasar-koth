@@ -10,7 +10,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: CometWorks/quasar
-          ref: v1.6.0.54
+          # Exact 1.6.0.54 source; release cleanup can remove older version tags.
+          ref: a1b42b0ab9a00002b46befb9792ffb9321e138a3
           path: deps/quasar
           sparse-checkout: |
             Quasar.Plugin.Abstractions
