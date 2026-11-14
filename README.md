@@ -153,7 +153,7 @@ See [Architecture](docs/Architecture.md) and
 
 ## License and credits
 
-Copyright (C) 2026 Owen de Bree. This project is licensed under AGPL-3.0-only.
+Copyright (C) 2026 OwendB1. This project is licensed under AGPL-3.0-only.
 The UI links to its public source. Modified hosted versions must offer their
 corresponding source under the license.
 
