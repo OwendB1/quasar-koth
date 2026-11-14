@@ -20,6 +20,25 @@ The plugin uses existing contracts only: `IQuasarChatCommand`,
 dispatcher. A channel ID field is sufficient to select a dedicated channel;
 no core contract extension or bot socket is needed.
 
+## Page and server panels
+
+The page inherits the host's full content width, outer spacing, heading styles,
+and panel appearance. Each connected server/node gets a keyed native HTML
+expansion panel. Panels open independently and own their own snapshot, loading
+state, reset confirmation, and delivery status. Requests never use a shared
+selected-server field.
+
+Opening a panel loads a fresh snapshot. A five-second timer reads scores only
+while that panel is expanded; a separate page timer updates server discovery.
+The renderer serializes state changes, and a per-panel busy guard prevents
+polling and resetting from overlapping. World/score-epoch changes invalidate the
+panel's confirmation. Removing a disconnected server or leaving the page
+cancels the corresponding timers and outstanding requests.
+
+`KothUiClient` centralizes authenticated dispatcher calls for page settings and
+server panels. Each operation still uses the current user's principal and the
+host's operation policies. Expanding a panel does not grant reset permission.
+
 ## Companion protocol v1
 
 The plugin ID is `owendb.koth`. Quasar discovers the public

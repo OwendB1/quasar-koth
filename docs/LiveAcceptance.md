@@ -7,8 +7,11 @@ The plugin does not launch Quasar or a game server during automated tests.
 1. Install the hub package and matching companion. Restart Quasar and the test
    game server. Confirm the KOTH page reports live scores and blocked client
    reset packets. Check plugin logs for attachment errors.
-2. Award capture points and apply a death penalty. Refresh the page and compare
-   with the mod's in-game score output before and after a world save.
+2. Expand two server panels and award capture points or apply a death penalty.
+   Confirm scores update within five seconds and match each server's in-game
+   output before and after a world save. Collapse/reopen a panel to confirm a
+   fresh read. Connect/disconnect a server and confirm its panel appears or is
+   removed without a page reload.
 3. Save a dedicated KOTH channel in the bot's configured guild. Test it, then
    trigger a capture. Confirm delivery identifies the correct server. Confirm
    normal Quasar bot functions still work in their existing channels.
@@ -27,8 +30,10 @@ The plugin does not launch Quasar or a game server during automated tests.
    announcements cross to the new world. On clusters, confirm scores stay
    node-specific and reset is unavailable. Nexus-connected reset must also be
    refused.
-8. Check keyboard navigation, narrow screens, light/dark modes, and custom
-   Quasar branding. No browser-only permissions may protect a write operation.
+8. Check keyboard navigation of panel summaries, narrow screens, light/dark
+   modes, and custom Quasar branding. The KOTH heading and content edges should
+   align with other Quasar pages at wide and narrow widths. No browser-only
+   permissions may protect a write operation.
 
 The supplied Workshop `clear` handler ignores sender identity. Validate its
 Harmony guard with a controlled test client on the disposable server; do not

@@ -1,11 +1,17 @@
-.koth-page { color: var(--quasar-palette-text-primary); max-width: 84rem; margin: 0 auto; padding: 1.5rem; }
-.koth-page h1 { margin-bottom: .3rem; }
+.koth-page { color: var(--quasar-palette-text-primary); min-width: 0; }
 .koth-page p, .koth-page label { line-height: 1.5; }
 .koth-page header p, .koth-page caption { color: var(--quasar-palette-text-secondary); }
 .koth-page .koth-toolbar { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; margin: 1rem 0; }
-.koth-page .koth-card { margin: 1.5rem 0; padding: 1.25rem; background: var(--quasar-palette-surface); border: 1px solid var(--quasar-palette-lines-default); border-radius: .5rem; }
+.koth-page .koth-card { margin: 1.25rem 0; padding: 1.25rem; }
+.koth-page .koth-server-panels { display: grid; gap: .75rem; margin-bottom: 1.25rem; }
+.koth-page .koth-server-panel { min-width: 0; }
+.koth-page .koth-server-panel > summary { padding: 1rem 1.25rem; }
+.koth-page .koth-server-panel > summary h2 { display: inline; margin: 0; }
+.koth-page .koth-server-panel[open] > summary { border-bottom: 1px solid var(--quasar-palette-divider); }
+.koth-page .koth-server-content { min-width: 0; padding: 1.25rem; }
+.koth-page .koth-reset-panel { margin-top: 1.25rem; }
 .koth-page summary { cursor: pointer; font-weight: 600; }
-.koth-page input:not([type=checkbox]), .koth-page select { padding: .6rem; max-width: 100%; color: inherit; background: var(--quasar-palette-background); border: 1px solid var(--quasar-palette-lines-inputs); border-radius: .3rem; }
+.koth-page input:not([type=checkbox]) { padding: .6rem; max-width: 100%; color: inherit; background: var(--quasar-palette-background); border: 1px solid var(--quasar-palette-lines-inputs); border-radius: .3rem; }
 .koth-page label:not(.koth-check) { display: block; }
 .koth-page .koth-check { display: flex; align-items: center; gap: .5rem; margin: 1rem 0; }
 .koth-page button { padding: .6rem .9rem; border: 1px solid var(--quasar-palette-lines-default); border-radius: .3rem; background: var(--quasar-palette-primary); color: var(--quasar-palette-primary-contrast-text); cursor: pointer; }
@@ -18,4 +24,4 @@
 .koth-page :is(th, td) { padding: .7rem; border-bottom: 1px solid var(--quasar-palette-table-lines); }
 .koth-page caption { text-align: left; padding: .7rem 0; }
 .koth-page dd { margin: .3rem 0 1rem; overflow-wrap: anywhere; }
-@media (max-width: 600px) { .koth-page { padding: .75rem; } .koth-page .koth-card { padding: .75rem; } .koth-page .koth-toolbar select { width: 100%; } }
+@media (max-width: 600px) { .koth-page :is(.koth-card, .koth-server-content) { padding: .75rem; } .koth-page .koth-server-panel > summary { padding: .75rem; } }

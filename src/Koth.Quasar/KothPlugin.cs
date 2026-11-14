@@ -19,6 +19,7 @@ public sealed class KothPlugin : IQuasarPlugin
     {
         services.AddSingleton(new KothStore(Path.Combine(context.InstallDirectory, "PluginData", Id)));
         services.AddSingleton<KothService>();
+        services.AddScoped<KothUiClient>();
         services.AddHostedService(provider => provider.GetRequiredService<KothService>());
         services.AddSingleton<IQuasarChatCommand, KothScoreCommand>();
         services.AddSingleton<IQuasarChatCommand, KothResetCommand>();

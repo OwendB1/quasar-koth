@@ -13,12 +13,20 @@ Keep the mod enabled in the world's mod list; this plugin does not install it.
 1. Open **UI Plugins** in Quasar and refresh QuasarHub.
 2. Install **King of the Hill** and restart Quasar when prompted.
 3. Restart the managed game servers to load the bundled Magnetar companion.
-4. Open **King of the Hill** in the sidebar and select a connected server or node.
+4. Open **King of the Hill** in the sidebar and expand a connected server or node.
 
 The companion attaches to the mod's live session component. Scores include
-changes not yet written to `Scores.data`, such as death penalties. **Refresh**
-reads current scores; the page does not refresh automatically. Unknown or
-incompatible mod versions produce a status message instead of guessed scores.
+changes not yet written to `Scores.data`, such as death penalties. Each server
+has its own expansion panel. Opening a panel reads its scores, and expanded
+panels update every five seconds. Several servers can stay expanded together.
+The connected server list also updates every five seconds; disconnected servers
+are removed and their pending requests are canceled. Unknown or incompatible
+mod versions produce a status message instead of guessed scores.
+
+The page uses Quasar's normal full-width content area and shared page-heading
+and panel styles. It adds no separate page width cap or outer padding. There is
+no server dropdown or manual Refresh button. Collapse a panel to stop polling
+its scores; reopening it reads a fresh snapshot.
 
 ## Dedicated Discord channel
 
@@ -68,7 +76,7 @@ commands at startup; restart Quasar and reconnect/restart servers after install.
 
 ## Reset and recovery
 
-On the KOTH page, expand **Reset all KOTH scores**, type `RESET`, then select
+On the KOTH page, expand the server and **Reset all KOTH scores**, type `RESET`, then select
 **Back up and reset scores**. This clears faction scores for every planet in
 that world. It does not reset capture progress, prize counters, faction balances,
 or previously awarded items. Only users with `CanControlServers` see the reset
@@ -82,6 +90,9 @@ persisted scores. A persistence failure restores the original live and saved
 scores where storage remains writable. The backup remains available if recovery
 fails. Successful resets rotate the stream ID, so stale confirmations and retry
 requests cannot clear scores again.
+
+Each server panel keeps its own scores, errors, reset confirmation, and delivery
+status. A world or score-epoch change clears that panel's reset confirmation.
 
 To restore a backup, stop the game server, preserve its current `Scores.data`,
 copy the selected backup to `Scores.data` in the same mod storage directory,

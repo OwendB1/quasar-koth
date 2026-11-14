@@ -7,6 +7,7 @@ using KingOfTheHill;
 using Koth.Contracts;
 using Koth.Magnetar;
 using Koth.Quasar;
+using Koth.Quasar.Pages;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
@@ -152,28 +153,94 @@ try
 
     // Render actual Razor page with viewer permissions. No Quasar process or browser required.
     var services = new ServiceCollection();
+    var allowWrites = false;
     services.AddLogging(); services.AddAuthorizationCore(options =>
     {
-        options.AddPolicy("CanControlServers", p => p.RequireAssertion(_ => false));
-        options.AddPolicy("CanManageDiscord", p => p.RequireAssertion(_ => false));
+        options.AddPolicy("CanControlServers", p => p.RequireAssertion(_ => allowWrites));
+        options.AddPolicy("CanManageDiscord", p => p.RequireAssertion(_ => allowWrites));
     });
     services.AddSingleton<AuthenticationStateProvider, ViewerAuthentication>();
-    services.AddSingleton<IQuasarOperationDispatcher, RenderDispatcher>();
+    var renderDispatcher = new RenderDispatcher();
+    services.AddSingleton<IQuasarOperationDispatcher>(renderDispatcher);
+    services.AddScoped<KothUiClient>();
     await using var provider = services.BuildServiceProvider();
     await using var renderer = new HtmlRenderer(provider, provider.GetRequiredService<ILoggerFactory>());
-    var html = await renderer.Dispatcher.InvokeAsync(async () =>
+    KothPage pageComponent = default!;
+    var pageOutput = await renderer.Dispatcher.InvokeAsync(async () =>
     {
         var output = await renderer.RenderComponentAsync<CascadingAuthenticationState>(ParameterView.FromDictionary(new Dictionary<string, object?>
         {
-            ["ChildContent"] = (RenderFragment)(builder => { builder.OpenComponent<Koth.Quasar.Pages.KothPage>(0); builder.CloseComponent(); })
+            ["ChildContent"] = (RenderFragment)(builder =>
+            {
+                builder.OpenComponent<KothPage>(0);
+                builder.AddComponentReferenceCapture(1, component => pageComponent = (KothPage)component);
+                builder.CloseComponent();
+            })
         }));
-        return output.ToHtmlString();
+        return output;
     });
+    var html = await renderer.Dispatcher.InvokeAsync(pageOutput.ToHtmlString);
     Check(html.Contains("King of the Hill") && html.Contains("No game servers are connected"), "Razor empty state renders");
     Check(!html.Contains("koth-channel\"") && !html.Contains("koth-reset-confirm"), "viewer rendering hides privileged controls");
+    var firstServer = new KothServer("first", "First server", "", "");
+    var secondServer = new KothServer("second", "Second server", "", "");
+    renderDispatcher.Servers.AddRange([firstServer, secondServer]);
+    await renderer.Dispatcher.InvokeAsync(() => InvokeUi(pageComponent, "LoadServers"));
+    html = await renderer.Dispatcher.InvokeAsync(pageOutput.ToHtmlString);
+    Check(html.Contains("First server") && html.Contains("Second server") && !html.Contains("<select"), "connected servers render expansion panels instead of a dropdown");
+    Check(html.Contains("quasar-page-heading") && !html.Contains(">Refresh<"), "page uses host heading and needs no manual refresh");
+    Check(renderDispatcher.ScoreRequests.Count == 0, "collapsed panels do not request scores");
+    renderDispatcher.Servers.Remove(firstServer);
+    await renderer.Dispatcher.InvokeAsync(() => InvokeUi(pageComponent, "LoadServers"));
+    html = await renderer.Dispatcher.InvokeAsync(pageOutput.ToHtmlString);
+    Check(!html.Contains("First server") && html.Contains("Second server"), "discovery removes disconnected server panels");
+
+    // Exercise independent panel requests and confirmations through real component event handling.
+    allowWrites = true;
+    KothServerPanel firstPanel = default!, secondPanel = default!;
+    var panelsOutput = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderComponentAsync<CascadingAuthenticationState>(
+        ParameterView.FromDictionary(new Dictionary<string, object?>
+        {
+            ["ChildContent"] = (RenderFragment)(builder =>
+            {
+                builder.OpenComponent<KothServerPanel>(0); builder.AddAttribute(1, "Server", firstServer);
+                builder.AddComponentReferenceCapture(2, component => firstPanel = (KothServerPanel)component); builder.CloseComponent();
+                builder.OpenComponent<KothServerPanel>(3); builder.AddAttribute(4, "Server", secondServer);
+                builder.AddComponentReferenceCapture(5, component => secondPanel = (KothServerPanel)component); builder.CloseComponent();
+            })
+        })));
+    var slowRead = new TaskCompletionSource<QuasarOperationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+    renderDispatcher.PendingScores["first"] = slowRead;
+    Task firstOpen = Task.CompletedTask;
+    await renderer.Dispatcher.InvokeAsync(() => { firstOpen = InvokeUi(firstPanel, "Toggle"); });
+    await renderer.Dispatcher.InvokeAsync(() => InvokeUi(secondPanel, "Toggle"));
+    Check(!firstOpen.IsCompleted && renderDispatcher.ScoreRequests.SequenceEqual(["first", "second"]), "slow server does not block another panel's request");
+    var firstSnapshot = RenderDispatcher.Snapshot("first");
+    renderDispatcher.PendingScores.Remove("first");
+    renderDispatcher.Snapshots["first"] = firstSnapshot;
+    slowRead.SetResult(new(200, firstSnapshot));
+    await firstOpen;
+    html = await renderer.Dispatcher.InvokeAsync(panelsOutput.ToHtmlString);
+    Check(html.Contains("World-first") && html.Contains("World-second"), "expanded panels retain their own world data");
+    Check(html.Split("id=\"koth-reset-confirm-").Length == 3, "each expanded server has its own reset confirmation input");
+
+    typeof(KothServerPanel).GetField("confirmation", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(firstPanel, "RESET");
+    typeof(KothServerPanel).GetField("confirmation", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(secondPanel, "RESET");
+    renderDispatcher.Snapshots["first"] = RenderDispatcher.Snapshot("replacement");
+    await renderer.Dispatcher.InvokeAsync(() => InvokeUi(firstPanel, "LoadScores"));
+    string Confirmation(KothServerPanel panel) => (string)typeof(KothServerPanel).GetField("confirmation", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(panel)!;
+    Check(Confirmation(firstPanel) == "" && Confirmation(secondPanel) == "RESET", "world changes invalidate only the affected panel's confirmation");
+    await renderer.Dispatcher.InvokeAsync(() => InvokeUi(secondPanel, "Reset"));
+    Check(renderDispatcher.LastReset?.ServerId == "second" && renderDispatcher.LastReset.Confirmation == "RESET", "reset stays bound to its own server panel");
+    await renderer.Dispatcher.InvokeAsync(() => InvokeUi(firstPanel, "Toggle"));
+    html = await renderer.Dispatcher.InvokeAsync(panelsOutput.ToHtmlString);
+    Check(!html.Contains("World-replacement") && html.Contains("World-second"), "collapsing one panel leaves the other panel open");
 }
 finally { Directory.Delete(directory, recursive: true); }
 Console.WriteLine($"PASS: {count} KOTH checks");
+
+static Task InvokeUi(ComponentBase component, string method) => EventCallback.Factory.Create(component,
+    (Func<Task>)(() => (Task)component.GetType().GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(component, null)!)).InvokeAsync();
 
 public static class PacketGuard { public static bool Prefix(bool __3) => KothRuntime.AcceptPacket(__3); }
 sealed class FakeCompanion : IQuasarCompanionChannel
@@ -215,6 +282,37 @@ sealed class ViewerAuthentication : AuthenticationStateProvider
 }
 sealed class RenderDispatcher : IQuasarOperationDispatcher
 {
-    public Task<QuasarOperationResult> DispatchAsync(QuasarOperationContext context, string pluginId, string operationId, JsonElement request, CancellationToken token) =>
-        Task.FromResult(new QuasarOperationResult(200, Array.Empty<KothServer>()));
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    public readonly List<KothServer> Servers = [];
+    public readonly List<string> ScoreRequests = [];
+    public readonly Dictionary<string, KothSnapshot> Snapshots = [];
+    public readonly Dictionary<string, TaskCompletionSource<QuasarOperationResult>> PendingScores = [];
+    public ResetScoresRequest? LastReset;
+    public static KothSnapshot Snapshot(string server) => new()
+    {
+        Available = true, World = "World-" + server, StreamId = Guid.NewGuid().ToString("N"), ResetSupported = true,
+        CapturedUtc = DateTime.UtcNow, Status = "Live scores"
+    };
+    public Task<QuasarOperationResult> DispatchAsync(QuasarOperationContext context, string pluginId, string operationId, JsonElement request, CancellationToken token)
+    {
+        object value;
+        if (operationId == "servers.list") value = Servers.ToArray();
+        else if (operationId == "settings.read") value = new KothSettings();
+        else if (operationId == "discord.status") value = new DeliveryStatus(null, "No announcements yet.");
+        else if (operationId == "scores.read")
+        {
+            var server = request.Deserialize<ServerRequest>(Json)!.ServerId;
+            ScoreRequests.Add(server);
+            if (PendingScores.TryGetValue(server, out var pending)) return pending.Task.WaitAsync(token);
+            if (!Snapshots.ContainsKey(server)) Snapshots[server] = Snapshot(server);
+            value = Snapshots[server];
+        }
+        else if (operationId == "scores.reset")
+        {
+            LastReset = request.Deserialize<ResetScoresRequest>(Json)!;
+            value = new ResetResult { BackupFile = "backup.xml", Snapshot = Snapshot(LastReset.ServerId) };
+        }
+        else throw new InvalidOperationException("Unexpected render operation: " + operationId);
+        return Task.FromResult(new QuasarOperationResult(200, value));
+    }
 }
