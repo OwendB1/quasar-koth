@@ -6,9 +6,11 @@ Licensed under **GNU AGPL version 3 only** ([LICENSE](LICENSE)).
 
 ## Install
 
-Requires **Quasar 1.6.0.54 or newer**, Magnetar, and the
+The 0.2 package requires **Quasar 1.7.0 or newer**, Magnetar, and the
 [King of the Hill Workshop mod, 2388326362](https://steamcommunity.com/sharedfiles/filedetails/?id=2388326362).
-Keep the mod enabled in the world's mod list; this plugin does not install it.
+Keep the mod enabled in the world's mod list. The 0.2 UI targets the WebAssembly
+dashboard. Use a matching Quasar build and plugin package until the release and
+hub pin are published.
 
 1. Open **UI Plugins** in Quasar and refresh QuasarHub.
 2. Install **King of the Hill** and restart Quasar when prompted.
@@ -134,7 +136,7 @@ shipped in this repository.
 
 ## Build and tests
 
-Install the .NET 10 SDK. Clone Quasar and pass its abstractions project path:
+Install the .NET 10 SDK. Build against the Quasar 1.7 dashboard branch or release.
 
 ```sh
 dotnet build src/Koth.Quasar/Koth.Quasar.csproj -c Release \
@@ -149,15 +151,29 @@ QuasarHub builds the UI against the running host's
 `QuasarPluginAbstractionsAssembly` and supplies `DS64` and `Magnetar` for its
 owned companion. Local Steam/Magnetar defaults are included; override
 `MagnetarBin` if the SDK is in another directory. Proprietary server assemblies
-are references only and are never copied into the package. CI builds the UI and
-tests against the minimum Quasar release; companion builds need a local server
+are references only and are never copied into the package. CI uses a public
+worker abstractions snapshot for compilation and component tests. Browser
+acceptance requires the 1.7 dashboard. Companion builds need a local server
 installation.
+
+The worker build places `Koth.Browser.dll` beside `Koth.Quasar.dll`. Package
+both with the manifest and its stylesheet directory. Quasar serves the browser
+assembly under the signed-in panel and runs the same `/koth` page locally and
+at hosted panel paths.
 
 Tests exercise mod reflection, live score projection, Harmony packet rejection,
 backup failure and rollback, stale reset protection, Nexus/cluster refusal,
 dedicated-channel delivery, retries, cursor persistence, operation policies, and
 viewer rendering. They use a mod-shape fixture; they do not replace a live game
 acceptance test. No Quasar service or game server is launched by these tests.
+
+To check the packaged browser UI, run Quasar's `Quasar.Wasm.DashboardChecks`
+with its published Release dashboard and browser prerequisites. Set
+`QUASAR_TEST_PLUGIN_PACKAGE` to the built KOTH package root and
+`QUASAR_TEST_PLUGIN_DRIVER` to the absolute path of
+[`tests/Browser/koth.test.mjs`](tests/Browser/koth.test.mjs). The driver opens
+the route, checks the assembly and stylesheet, expands a server, and saves
+settings in the disposable test installation.
 
 See [Architecture](docs/Architecture.md) and
 [Live acceptance](docs/LiveAcceptance.md) for contracts and runtime checks.

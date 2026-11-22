@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Razor">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
@@ -7,7 +7,7 @@
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <Compile Include="../Shared/*.cs" Link="Contracts/%(Filename)%(Extension)" />
+    <ProjectReference Include="../Koth.Browser/Koth.Browser.csproj" />
     <InternalsVisibleTo Include="Koth.Tests" />
   </ItemGroup>
   <ItemGroup Condition="'$(QuasarPluginAbstractionsAssembly)' != ''">

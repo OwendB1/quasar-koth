@@ -4,7 +4,7 @@ Builds and fixture tests do not prove game-runtime or Discord acceptance.
 Use a disposable KOTH world before enabling the plugin on a production server.
 The plugin does not launch Quasar or a game server during automated tests.
 
-1. Install the hub package and matching companion. Restart Quasar and the test
+1. Install the 1.7-compatible package and matching companion. Restart Quasar and the test
    game server. Confirm the KOTH page reports live scores and blocked client
    reset packets. Check plugin logs for attachment errors.
 2. Expand two server panels and award capture points or apply a death penalty.
@@ -30,7 +30,12 @@ The plugin does not launch Quasar or a game server during automated tests.
    announcements cross to the new world. On clusters, confirm scores stay
    node-specific and reset is unavailable. Nexus-connected reset must also be
    refused.
-8. Check keyboard navigation of panel summaries, narrow screens, light/dark
+8. Open `/koth` from the sidebar and reload its URL at the local root and
+   under a hosted panel prefix. Check that both load the KOTH browser DLL and
+   stylesheet under the current panel. Exercise the hosted HTTP and direct
+   WebRTC paths. The KOTH page should open and respond without a Blazor Server
+   circuit.
+9. Check keyboard navigation of panel summaries, narrow screens, light/dark
    modes, and custom Quasar branding. The KOTH heading and content edges should
    align with other Quasar pages at wide and narrow widths. No browser-only
    permissions may protect a write operation.

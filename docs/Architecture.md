@@ -1,17 +1,22 @@
 # Architecture
 
-`Koth.Quasar` is a .NET 10 Razor UI plugin. `Koth.Magnetar` is its bundled
-.NET Standard 2.0 server companion. `src/Shared/Contracts.cs` defines the same
-bounded request/response DTOs in both assemblies. There is no server binary or
-compile-time Workshop assembly dependency in the UI.
+`Koth.Browser` is the .NET 10 Razor component library for the WebAssembly
+dashboard. The worker adapter, `Koth.Quasar`, registers its page assembly and
+the sidebar link. The manifest names `Koth.Browser.dll` beside the worker DLL.
+The page owns its server panels and has no named outlet contributions.
+
+`Koth.Magnetar` is the bundled .NET Standard 2.0 companion.
+`src/Shared/Contracts.cs` supplies the companion protocol DTOs to both the
+browser assembly and the separately built companion. The worker references
+the browser assembly for its component type and data contracts.
 
 ## Ownership
 
 - The mod owns capture rules, scoring, prizes, and `Scores.data`.
 - The companion owns simulation-thread reflection, packet validation, event
   buffering, and backed-up score resets.
-- The UI plugin owns the page, dedicated-channel configuration, delivery
-  cursors, background collection, and KOTH command handlers.
+- The browser renders scores, collects reset confirmation, and edits channel settings.
+- The worker owns channel configuration, delivery cursors, background collection and KOTH command handlers.
 - Quasar owns bot connection/authentication, rate limiting, Discord identity
   mapping, permissions, audited operation dispatch, and agent transport.
 
@@ -35,9 +40,11 @@ polling and resetting from overlapping. World/score-epoch changes invalidate the
 panel's confirmation. Removing a disconnected server or leaving the page
 cancels the corresponding timers and outstanding requests.
 
-`KothUiClient` centralizes authenticated dispatcher calls for page settings and
-server panels. Each operation still uses the current user's principal and the
-host's operation policies. Expanding a panel does not grant reset permission.
+The page calls the signed-in panel's `quasarSdk.request` and asks
+`quasar.core/dashboard.permission` which controls to show. Quasar routes both
+local and hosted calls to the worker dispatcher, which checks each operation
+against the current user's effective policies. Each request carries an abort
+signal linked to the lifetime of its page or server panel.
 
 ## Companion protocol v1
 
@@ -74,8 +81,7 @@ the stream and discards pre-reset announcements.
 ## Quasar operations
 
 All operations are under `owendb.koth`; JSON calls use Quasar's browser SDK
-operation dispatcher. The Razor page calls that same dispatcher with the
-current authenticated user. There are no independently authorized plugin HTTP
+operation dispatcher on the worker. There are no independently authorized plugin HTTP
 endpoints and no public anonymous scoreboard.
 
 | Operation | Default policy | Effect |
@@ -100,5 +106,5 @@ QuasarHub pins a public source commit and builds the UI plus owned companion.
 Restart Quasar to load the UI; restart game servers to load the matching
 companion. Enable/disable and safe boot use Quasar's existing lifecycle. Removing
 the plugin leaves mod scores untouched. To roll back, pin a previously tested
-source commit and deploy both assemblies together. Preserve `PluginData` and
+source commit and install its worker, UI and companion together. Preserve `PluginData` and
 world storage. Do not modify a published source commit in place.

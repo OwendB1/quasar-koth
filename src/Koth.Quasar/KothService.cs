@@ -7,11 +7,6 @@ using Quasar.Plugin.Abstractions.Discord;
 
 namespace Koth.Quasar;
 
-public sealed record KothServer(string ServerId, string DisplayName, string ClusterId, string ClusterSlot);
-public sealed record ServerRequest(string ServerId);
-public sealed record ResetScoresRequest(string ServerId, string StreamId, string Confirmation);
-public sealed record DeliveryStatus(DateTime? LastSentUtc, string Message);
-
 internal sealed class KothService(IQuasarCompanionChannel companion, IQuasarDiscordChannels discord,
     KothStore store, ILogger<KothService> logger) : BackgroundService
 {

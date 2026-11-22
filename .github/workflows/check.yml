@@ -10,8 +10,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: CometWorks/quasar
-          # Exact 1.6.0.54 source; release cleanup can remove older version tags.
-          ref: a1b42b0ab9a00002b46befb9792ffb9321e138a3
+          # Public worker contracts used by the adapter. WASM route acceptance needs Quasar 1.7.
+          ref: e02f49d1bee95bdbd3d0931aa6bbb6a372479e57
           path: deps/quasar
           sparse-checkout: |
             Quasar.Plugin.Abstractions
@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      - name: Build and test against minimum Quasar version
+      - name: Build worker and browser and run KOTH checks
         run: >-
           dotnet run --project tests/Koth.Tests/Koth.Tests.csproj -c Release
           -p:QuasarPluginAbstractionsProject="$GITHUB_WORKSPACE/deps/quasar/Quasar.Plugin.Abstractions/Quasar.Plugin.Abstractions.csproj"
