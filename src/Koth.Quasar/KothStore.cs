@@ -1,9 +1,9 @@
 using System.Globalization;
 using System.Text.Json;
+using Koth.Contracts;
 
 namespace Koth.Quasar;
 
-public sealed record KothSettings(bool AnnouncementsEnabled = false, string DiscordChannelId = "");
 internal sealed record DeliveryCursor(string StreamId, long Sequence, DateTime UpdatedUtc);
 
 internal sealed class KothStore

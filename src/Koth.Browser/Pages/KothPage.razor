@@ -1,11 +1,7 @@
 @page "/koth"
 @using Microsoft.AspNetCore.Authorization
-@using Microsoft.AspNetCore.Components.Authorization
-@using Microsoft.AspNetCore.Components.Web
-@using global::Quasar.Plugin.Abstractions.Security
-@attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
+@attribute [Authorize(Policy = "CanView")]
 @implements IDisposable
-@inject KothUiClient Ui
 
 <PageTitle>King of the Hill</PageTitle>
 <section class="koth-page" aria-labelledby="koth-title">
@@ -19,15 +15,16 @@
     @if (error.Length > 0) { <p class="koth-error" role="alert">@error</p> }
     @if (message.Length > 0) { <p role="status">@message</p> }
     @if (serverError.Length > 0) { <p class="koth-error" role="alert">@serverError</p> }
-    @if (servers.Count == 0 && serverError.Length == 0)
+    @if (servers.Length == 0 && serverError.Length == 0)
     { <p>No game servers are connected. Start a managed server with the companion enabled.</p> }
     <div class="koth-server-panels" aria-label="Game servers and nodes">
         @foreach (var server in servers)
         {
-            <KothServerPanel @key="server.ServerId" Server="server" />
+            <KothServerPanel @key="server.ServerId" Server="server" CanManageDiscord="canManageDiscord" CanControlServers="canControlServers" />
         }
     </div>
-    <AuthorizeView Policy="@QuasarPolicyNames.CanManageDiscord">
+    @if (canManageDiscord)
+    {
         <section class="quasar-panel koth-card" aria-labelledby="koth-discord-title" aria-busy="@busy">
             <h2 id="koth-discord-title">Discord announcements</h2>
             <p>Use Quasar's existing bot with a dedicated KOTH text channel in its configured Discord server.</p>
@@ -40,22 +37,24 @@
                 <button type="button" @onclick="TestDiscord" disabled="@busy">Test saved channel</button>
             </div>
         </section>
-    </AuthorizeView>
+    }
     <footer><a href="https://github.com/OwendB1/quasar-koth">KOTH plugin source code</a> · AGPL-3.0-only</footer>
 </section>
 
 @code {
     private readonly CancellationTokenSource lifetime = new();
-    private IReadOnlyList<KothServer> servers = [];
+    private KothServer[] servers = [];
     private string error = "", message = "", serverError = "", channelId = "";
-    private bool busy, announcementsEnabled;
+    private bool busy, announcementsEnabled, canManageDiscord, canControlServers;
 
     protected override async Task OnInitializedAsync()
     {
         await Run(async () =>
         {
             await LoadServers();
-            if (await Ui.CanAsync(QuasarPolicyNames.CanManageDiscord))
+            canControlServers = await Ui.CanAsync("CanControlServers", lifetime.Token);
+            canManageDiscord = await Ui.CanAsync("CanManageDiscord", lifetime.Token);
+            if (canManageDiscord)
             {
                 var settings = await Ui.CallAsync<KothSettings>("settings.read", new { }, lifetime.Token);
                 channelId = settings.DiscordChannelId; announcementsEnabled = settings.AnnouncementsEnabled;
@@ -67,7 +66,7 @@
     {
         try
         {
-            servers = await Ui.CallAsync<IReadOnlyList<KothServer>>("servers.list", new { }, lifetime.Token);
+            servers = await Ui.CallAsync<KothServer[]>("servers.list", new { }, lifetime.Token);
             serverError = "";
         }
         catch (Exception failure) when (failure is not OperationCanceledException)

@@ -1,9 +1,5 @@
-@using Koth.Contracts
 @using Microsoft.AspNetCore.Components
-@using Microsoft.AspNetCore.Components.Authorization
-@using global::Quasar.Plugin.Abstractions.Security
 @implements IDisposable
-@inject KothUiClient Ui
 
 <details class="quasar-panel koth-server-panel" open="@expanded">
     <summary @onclick="Toggle" @onclick:preventDefault="true"><h2>@Server.DisplayName</h2></summary>
@@ -18,7 +14,7 @@
                 <p role="status">@snapshot.Status</p>
                 @if (snapshot.Available)
                 {
-                    <p>World: <strong>@snapshot.World</strong> · Read at @snapshot.CapturedUtc.ToLocalTime().ToString("g") · Updates every 5 seconds while expanded.</p>
+                    <p>World: <strong>@snapshot.World</strong> · Read at @snapshot.CapturedUtc.ToLocalTime().ToString("g", System.Globalization.CultureInfo.CurrentCulture) · Updates every 5 seconds while expanded.</p>
                     @if (Server.ClusterId.Length > 0)
                     { <p>These are this node's scores. Replicated scores are not added together. Cluster reset is unavailable.</p> }
                     <div class="koth-table-scroll" tabindex="0" role="region" aria-label="@($"KOTH faction scores for {Server.DisplayName}")">
@@ -32,28 +28,32 @@
                         </table>
                     </div>
                     @if (snapshot.Scores.Count == 0) { <p>No KOTH scores yet.</p> }
-                    <AuthorizeView Policy="@QuasarPolicyNames.CanControlServers">
+                    @if (CanControlServers)
+                    {
                         <details class="koth-reset-panel">
                             <summary>Reset all KOTH scores</summary>
                             <p>This clears every faction's score in this world. A verified XML backup is saved first. Capture progress and prizes remain controlled by the mod.</p>
                             <p>@snapshot.ResetStatus</p>
                             <dl><dt>Server ID</dt><dd><code>@Server.ServerId</code></dd><dt>World stream ID</dt><dd><code>@snapshot.StreamId</code></dd></dl>
                             <label for="@confirmationId">Type RESET to confirm</label>
-                            <input id="@confirmationId" @bind="confirmation" autocomplete="off" disabled="@busy" />
+                            <input id="@confirmationId" @bind="confirmation" @bind:event="oninput" autocomplete="off" disabled="@busy" />
                             <button type="button" class="koth-danger" @onclick="Reset" disabled="@(busy || !snapshot.ResetSupported || confirmation != "RESET" || Server.ClusterId.Length > 0)">Back up and reset scores</button>
                         </details>
-                    </AuthorizeView>
+                    }
                 }
             }
-            <AuthorizeView Policy="@QuasarPolicyNames.CanManageDiscord">
+            @if (CanManageDiscord)
+            {
                 <p role="status">@deliveryMessage</p>
-            </AuthorizeView>
+            }
         </div>
     }
 </details>
 
 @code {
     [Parameter, EditorRequired] public KothServer Server { get; set; } = default!;
+    [Parameter] public bool CanManageDiscord { get; set; }
+    [Parameter] public bool CanControlServers { get; set; }
     private readonly CancellationTokenSource lifetime = new();
     private readonly string confirmationId = "koth-reset-confirm-" + Guid.NewGuid().ToString("N");
     private KothSnapshot? snapshot;
@@ -79,7 +79,7 @@
             snapshot = current;
             try
             {
-                if (await Ui.CanAsync(QuasarPolicyNames.CanManageDiscord))
+                if (CanManageDiscord)
                     deliveryMessage = (await Ui.CallAsync<DeliveryStatus>("discord.status", new ServerRequest(Server.ServerId), lifetime.Token)).Message;
             }
             catch (Exception failure) when (failure is not OperationCanceledException)

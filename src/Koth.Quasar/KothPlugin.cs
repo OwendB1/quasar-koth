@@ -1,13 +1,14 @@
 using System.Reflection;
+using Koth.Browser.Pages;
 using Koth.Contracts;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
-using Quasar.Plugin.Abstractions;
 using Quasar.Plugin.Abstractions.Commands;
 using Quasar.Plugin.Abstractions.Extensions;
 using Quasar.Plugin.Abstractions.Navigation;
 using Quasar.Plugin.Abstractions.Operations;
 using Quasar.Plugin.Abstractions.Security;
+using Quasar.Plugin.Abstractions;
 
 namespace Koth.Quasar;
 
@@ -19,7 +20,6 @@ public sealed class KothPlugin : IQuasarPlugin
     {
         services.AddSingleton(new KothStore(Path.Combine(context.InstallDirectory, "PluginData", Id)));
         services.AddSingleton<KothService>();
-        services.AddScoped<KothUiClient>();
         services.AddHostedService(provider => provider.GetRequiredService<KothService>());
         services.AddSingleton<IQuasarChatCommand, KothScoreCommand>();
         services.AddSingleton<IQuasarChatCommand, KothResetCommand>();
@@ -62,7 +62,7 @@ public sealed class KothPlugin : IQuasarPlugin
         catch (InvalidOperationException error) { throw new QuasarOperationException(409, error.Message); }
     }
     public void ConfigureEndpoints(IEndpointRouteBuilder endpoints, QuasarPluginContext context) { }
-    public IEnumerable<Assembly> GetRazorAssemblies() { yield return typeof(KothPlugin).Assembly; }
+    public IEnumerable<Assembly> GetRazorAssemblies() { yield return typeof(KothPage).Assembly; }
     public IEnumerable<QuasarNavItem> GetNavItems()
     {
         yield return new("King of the Hill", "/koth", "<svg viewBox=\"0 0 24 24\"><path fill=\"currentColor\" d=\"M5 16 3 5l5 4 4-6 4 6 5-4-2 11H5m0 2h14v3H5v-3Z\"/></svg>", QuasarNavZones.Main, 810, QuasarPolicyNames.CanView);
