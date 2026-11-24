@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Reflection;
 using System.Security.Claims;
 using System.Text;
@@ -79,6 +80,47 @@ Refuses(() => runtime.Reset(new() { StreamId = snapshot.StreamId, Confirmation =
 Check(Core.Resets == beforeRetry, "replayed reset does not clear later scores");
 harmony.UnpatchAll("koth.tests");
 
+// Snapshot cache: request threads answer from an immutable copy that the game thread refreshes.
+Core.Seed();
+var cached = new KothRuntime(new Core());
+var now = DateTime.UtcNow;
+Check(cached.Cache.Answer(new(), now) == null, "no cached copy before the first game-thread read");
+var fallback = cached.Read(new(), "World");
+Check(cached.Cache.Current?.CapturedUtc == fallback.CapturedUtc && cached.Cache.Answer(new(), now)!.World == "World",
+    "no-cache fallback read on the game thread fills the cache");
+var refreshes = 0;
+for (var i = 0; i < KothSnapshotCache.RefreshTicks; i++)
+    cached.Cache.Tick(now, () => { refreshes++; cached.Refresh("World"); });
+Check(refreshes == 1, "wanted cache refreshes once per 60 game ticks");
+for (var i = 0; i < 40; i++) cached.Capture(Encoding.ASCII.GetBytes("Cached capture " + i), true);
+Check(cached.Cache.Answer(new() { StreamId = cached.StreamId, AfterSequence = 0 }, now)!.LastSequence == 0,
+    "copy is immutable; new captures appear on the next refresh");
+cached.Refresh("World");
+Core.Break();
+Refuses(() => cached.Read(new(), "World"), "fixture mod is unreadable");
+var offThread = await Task.Run(() => cached.Cache.Answer(new() { StreamId = cached.StreamId, AfterSequence = 30 }, now)!);
+Check(offThread.Scores.Count == 2 && offThread.LastSequence == 40 && offThread.Events.Count == 10 && offThread.Events[0].Sequence == 31,
+    "request thread answers from the cache without touching mod objects");
+var firstPage = cached.Cache.Answer(new() { StreamId = cached.StreamId, AfterSequence = 0 }, now)!;
+Check(firstPage.Events.Count == KothProtocol.EventPageSize && firstPage.Events[0].Sequence == 1, "cached events are paged from the cursor");
+firstPage.Events.Clear(); firstPage.Scores.Clear();
+var again = cached.Cache.Answer(new() { StreamId = cached.StreamId, AfterSequence = 0 }, now)!;
+Check(again.Events.Count == KothProtocol.EventPageSize && again.Scores.Count == 2, "answers cannot change the shared copy");
+Check(cached.Cache.Answer(new() { StreamId = "old-world", AfterSequence = 0 }, now)!.Events.Count == 0, "cached copy filters by stream ID");
+Refuses(() => cached.Cache.Answer(new() { AfterSequence = -1 }, now), "cached copy refuses a negative cursor");
+Refuses(() => cached.Cache.Answer(new() { Version = 999 }, now), "cached copy refuses another protocol version");
+Refuses(() => { for (var i = 0; i < KothSnapshotCache.RefreshTicks; i++) cached.Cache.Tick(now, () => cached.Refresh("World")); }, "failed refresh is reported");
+Check(cached.Cache.Current == null, "failed refresh drops the copy so the next request reads on the game thread");
+Core.Seed();
+var beforeReset = cached.Read(new(), "World");
+var cachedReset = cached.Reset(new() { StreamId = beforeReset.StreamId, Confirmation = "RESET" }, "World", Core.Write, name => files[name]);
+var afterReset = cached.Cache.Answer(new() { StreamId = cachedReset.Snapshot.StreamId, AfterSequence = 0 }, now)!;
+Check(afterReset.StreamId == cachedReset.Snapshot.StreamId && afterReset.StreamId != beforeReset.StreamId
+    && afterReset.Scores.Count == 0 && afterReset.Events.Count == 0 && afterReset.LastSequence == 0, "reset republishes the cache with the new stream");
+Check(!cached.Cache.Tick(now + KothSnapshotCache.KeepWarm, () => cached.Refresh("World")) && cached.Cache.Current == null,
+    "idle cache is dropped instead of serving old scores");
+Check(cached.Cache.Answer(new(), now + KothSnapshotCache.KeepWarm) == null, "first request after idle falls back to a game-thread read");
+
 var directory = Path.Combine(Path.GetTempPath(), "koth-tests-" + Guid.NewGuid().ToString("N"));
 try
 {
@@ -123,6 +165,24 @@ try
     companion.StreamId = "replacement-world"; companion.Add("New world capture");
     await service.PollAsync(server, default);
     Check(store.Cursor(server.ServerId)!.StreamId == "replacement-world", "new world establishes independent cursor");
+    companion.CapturedUtc = DateTime.UtcNow.AddSeconds(-20);
+    Check((await service.ReadAsync(server.ServerId, default)).Status.StartsWith("Scores are 2"), "old snapshot reports its age");
+    await service.PollAsync(server, default);
+    Check(service.Status(server.ServerId).Message.Contains("game thread is busy"), "delivery status reports an old snapshot");
+    companion.CapturedUtc = null;
+    Check((await service.ReadAsync(server.ServerId, default)).Status == "Live scores", "fresh snapshot keeps its status");
+
+    // Background collection: a stalled server neither delays others nor gets overlapping polls.
+    var gated = new GatedCompanion();
+    var concurrent = new KothService(gated, discord, store, NullLogger<KothService>.Instance) { PollInterval = TimeSpan.FromMilliseconds(20) };
+    await concurrent.StartAsync(default);
+    async Task Until(Func<bool> done) { for (var end = DateTime.UtcNow.AddSeconds(10); !done() && DateTime.UtcNow < end;) await Task.Delay(10); }
+    await Until(() => gated.Calls("fast") >= 5);
+    Check(gated.Calls("fast") >= 5 && gated.Calls("slow") == 1 && gated.MaxInFlight("slow") == 1, "stalled server does not delay others or overlap its own poll");
+    gated.Release();
+    await Until(() => gated.Calls("slow") >= 3);
+    Check(gated.Calls("slow") >= 3 && gated.MaxInFlight("slow") == 1 && gated.MaxInFlight("fast") == 1, "server resumes polling once it answers");
+    await concurrent.StopAsync(default);
 
     // Real plugin registration: destructive calls deny agents, use shared policies, and expose bot commands.
     var registrations = new ServiceCollection();
@@ -255,6 +315,7 @@ public static class PacketGuard { public static bool Prefix(bool __3) => KothRun
 sealed class FakeCompanion : IQuasarCompanionChannel
 {
     public string ClusterId = "", StreamId = "world-stream";
+    public DateTime? CapturedUtc;
     public int ResetCalls;
     private readonly List<KothEvent> events = [];
     public void Add(string text) => events.Add(new() { Sequence = events.Count + 1, Text = text, TimestampUtc = DateTime.UtcNow });
@@ -263,9 +324,32 @@ sealed class FakeCompanion : IQuasarCompanionChannel
     {
         if (operation == "reset") { ResetCalls++; throw new Exception("Unexpected reset"); }
         var read = (SnapshotRequest)(object)request!;
-        return Task.FromResult((TResponse)(object)new KothSnapshot { Available = true, StreamId = StreamId, LastSequence = events.Count,
+        return Task.FromResult((TResponse)(object)new KothSnapshot { Available = true, Status = "Live scores", StreamId = StreamId,
+            CapturedUtc = CapturedUtc ?? DateTime.UtcNow, LastSequence = events.Count,
             OldestSequence = events.Count == 0 ? 1 : events[0].Sequence,
             Events = read.StreamId == StreamId ? events.Where(e => e.Sequence > read.AfterSequence).ToList() : [] });
+    }
+}
+sealed class GatedCompanion : IQuasarCompanionChannel
+{
+    private readonly TaskCompletionSource gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly ConcurrentDictionary<string, int> calls = new(), inFlight = new(), maxInFlight = new();
+    public int Calls(string serverId) => calls.GetValueOrDefault(serverId);
+    public int MaxInFlight(string serverId) => maxInFlight.GetValueOrDefault(serverId);
+    public void Release() => gate.TrySetResult();
+    public IReadOnlyList<QuasarCompanionServer> GetConnectedServers() => [new("fast", "agent", "Fast server"), new("slow", "agent", "Stalled server")];
+    public async Task<TResponse> SendAsync<TRequest, TResponse>(string serverId, string pluginId, string operation, TRequest request, CancellationToken token)
+    {
+        calls.AddOrUpdate(serverId, 1, (_, n) => n + 1);
+        var current = inFlight.AddOrUpdate(serverId, 1, (_, n) => n + 1);
+        maxInFlight.AddOrUpdate(serverId, current, (_, n) => Math.Max(n, current));
+        try
+        {
+            if (serverId == "slow") await gate.Task.WaitAsync(token);
+            else await Task.Yield();
+            return (TResponse)(object)new KothSnapshot { Available = true, StreamId = "gated-" + serverId, CapturedUtc = DateTime.UtcNow };
+        }
+        finally { inFlight.AddOrUpdate(serverId, 0, (_, n) => n - 1); }
     }
 }
 sealed class FakeDiscord : IQuasarDiscordChannels

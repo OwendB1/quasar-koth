@@ -10,6 +10,8 @@ namespace Koth.Quasar;
 internal sealed class KothService(IQuasarCompanionChannel companion, IQuasarDiscordChannels discord,
     KothStore store, ILogger<KothService> logger) : BackgroundService
 {
+    internal static readonly TimeSpan StaleAfter = TimeSpan.FromSeconds(15);
+    internal TimeSpan PollInterval { get; init; } = TimeSpan.FromSeconds(5);
     private readonly ConcurrentDictionary<string, DeliveryStatus> delivery = new(StringComparer.Ordinal);
     internal IReadOnlyList<KothServer> Servers() => companion.GetConnectedServers()
         .Select(s => new KothServer(s.ServerId, s.DisplayName, s.ClusterId, s.ClusterSlot)).OrderBy(s => s.DisplayName).ToArray();
@@ -25,7 +27,14 @@ internal sealed class KothService(IQuasarCompanionChannel companion, IQuasarDisc
     {
         var result = await companion.SendAsync<SnapshotRequest, KothSnapshot>(serverId, KothProtocol.PluginId, "snapshot", request, TimeSpan.FromSeconds(10), token);
         if (result.Version != KothProtocol.Version) throw new InvalidOperationException("Update the KOTH UI and companion together.");
+        // The companion answers from a copy refreshed on the game thread. An old copy means the thread is stalled.
+        result.Status = StaleMessage(result) ?? result.Status;
         return result;
+    }
+    internal static string? StaleMessage(KothSnapshot snapshot)
+    {
+        var age = DateTime.UtcNow - snapshot.CapturedUtc;
+        return snapshot.Available && age > StaleAfter ? $"Scores are {(long)age.TotalSeconds} s old; the server's game thread is busy." : null;
     }
     internal Task<ResetResult> ResetAsync(ResetScoresRequest request, CancellationToken token)
     {
@@ -47,23 +56,39 @@ internal sealed class KothService(IQuasarCompanionChannel companion, IQuasarDisc
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
-        do
+        // Servers poll independently: a stalled server keeps its own poll and never delays the others.
+        // Only this loop touches the table, so one server never has two polls at once.
+        var running = new Dictionary<string, Task>(StringComparer.Ordinal);
+        using var timer = new PeriodicTimer(PollInterval);
+        try
         {
-            foreach (var server in companion.GetConnectedServers())
+            do
             {
-                try { await PollAsync(server, stoppingToken); }
-                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
-                catch (Exception error)
+                var servers = companion.GetConnectedServers();
+                foreach (var server in servers)
                 {
-                    var message = "Announcement collection failed: " + error.Message;
-                    if (Status(server.ServerId).Message != message) logger.LogWarning(error, "KOTH collection failed for {Server}", server.DisplayName);
-                    delivery[server.ServerId] = Status(server.ServerId) with { Message = message };
+                    if (running.TryGetValue(server.ServerId, out var busy) && !busy.IsCompleted) continue;
+                    running[server.ServerId] = PollSafelyAsync(server, stoppingToken);
                 }
-            }
-            var connected = companion.GetConnectedServers().Select(s => s.ServerId).ToHashSet(StringComparer.Ordinal);
-            foreach (var key in delivery.Keys.Where(k => !connected.Contains(k))) delivery.TryRemove(key, out _);
-        } while (await timer.WaitForNextTickAsync(stoppingToken));
+                var connected = servers.Select(s => s.ServerId).ToHashSet(StringComparer.Ordinal);
+                foreach (var key in running.Where(p => p.Value.IsCompleted && !connected.Contains(p.Key)).Select(p => p.Key).ToArray()) running.Remove(key);
+                foreach (var key in delivery.Keys.Where(k => !connected.Contains(k))) delivery.TryRemove(key, out _);
+            } while (await timer.WaitForNextTickAsync(stoppingToken));
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
+        finally { await Task.WhenAll(running.Values); }
+    }
+
+    internal async Task PollSafelyAsync(QuasarCompanionServer server, CancellationToken token)
+    {
+        try { await PollAsync(server, token); }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception error)
+        {
+            var message = "Announcement collection failed: " + error.Message;
+            if (Status(server.ServerId).Message != message) logger.LogWarning(error, "KOTH collection failed for {Server}", server.DisplayName);
+            delivery[server.ServerId] = Status(server.ServerId) with { Message = message };
+        }
     }
 
     internal async Task PollAsync(QuasarCompanionServer server, CancellationToken token)
@@ -78,12 +103,15 @@ internal sealed class KothService(IQuasarCompanionChannel companion, IQuasarDisc
             delivery[server.ServerId] = new(null, snapshot.Status);
             return;
         }
+        // Buffered events in an old copy are still valid; report the delay and keep delivering.
+        var stale = StaleMessage(snapshot);
+        if (stale != null) delivery[server.ServerId] = Status(server.ServerId) with { Message = stale };
         var settings = store.Settings;
         if (!settings.AnnouncementsEnabled || cursor == null || cursor.StreamId != snapshot.StreamId)
         {
             // First observation establishes a baseline. Enabling delivery never replays old captures.
             store.SaveCursor(server.ServerId, snapshot.StreamId, snapshot.LastSequence);
-            delivery[server.ServerId] = Status(server.ServerId) with { Message = settings.AnnouncementsEnabled ? "Waiting for new KOTH announcements." : "Discord announcements are disabled." };
+            delivery[server.ServerId] = Status(server.ServerId) with { Message = stale ?? (settings.AnnouncementsEnabled ? "Waiting for new KOTH announcements." : "Discord announcements are disabled.") };
             return;
         }
         if (cursor.Sequence < snapshot.OldestSequence - 1)

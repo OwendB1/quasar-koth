@@ -14,7 +14,7 @@ the browser assembly for its component type and data contracts.
 
 - The mod owns capture rules, scoring, prizes, and `Scores.data`.
 - The companion owns simulation-thread reflection, packet validation, event
-  buffering, and backed-up score resets.
+  buffering, the off-thread snapshot cache, and backed-up score resets.
 - The browser renders scores, collects reset confirmation, and edits channel settings.
 - The worker owns channel configuration, delivery cursors, background collection and KOTH command handlers.
 - Quasar owns bot connection/authentication, rate limiting, Discord identity
@@ -51,8 +51,9 @@ signal linked to the lifetime of its page or server panel.
 The plugin ID is `owendb.koth`. Quasar discovers the public
 `QuasarCompanionPluginId` property and
 `Task<string> HandleQuasarCompanionRequestAsync(string, string, CancellationToken)`
-method. Operations accept at most 4,096 JSON characters and run on the game
-thread through `MySandboxGame.Invoke`.
+method. Operations accept at most 4,096 JSON characters. `reset` runs on the
+game thread through `MySandboxGame.Invoke`. `snapshot` is answered from a cache
+on the request thread (see below).
 
 | Operation | Request | Response |
 | --- | --- | --- |
@@ -72,11 +73,49 @@ depending on that misleading name. Registration, unregistration, mod reads,
 and writes take place on the simulation thread. World replacement detaches
 the old receiver/patch and creates a new stream. Disposal queues cleanup there.
 
+### Snapshot cache
+
+`MySandboxGame.ProcessInvoke` runs every queued invoke in one frame with no time
+budget. A request that waits for the game thread times out during a stall, and
+its abandoned invoke still runs afterwards. So snapshots do not wait on it:
+
+- `KothSnapshotCache` holds one immutable `KothView`: the full score list, reset
+  support, stream ID, sequence bounds, world name, `CapturedUtc`, and a copy of
+  the announcement buffer. It is published with `Volatile.Write`; request
+  threads read it without locks.
+- The plugin's `Update()` refreshes the view every 60 ticks (about once per
+  second) while a request arrived in the last 30 seconds. After that the view
+  is dropped, so idle servers do no reflection and a later request never gets
+  old data. A failed refresh drops the view and is retried a second later.
+- A request validates its payload, marks the cache wanted, and filters the view
+  by stream ID, sequence cursor, and the 32-event page size on its own thread.
+  `CapturedUtc` is the time the view was built, so a stall shows up as an old
+  answer, not a timeout.
+- Only when no view exists (just attached, or after idle) does the request read
+  once on the game thread; that read also fills the cache. Without an attached
+  runtime the status snapshot is answered directly.
+- Queued invokes check the request's cancellation token first, so an abandoned
+  request does no game-thread work.
+- Captures and resets mutate the event buffer only on the game thread. A reset
+  republishes the view at once with the new stream ID and empty buffer.
+
+All reflection over mod objects stays in `Update()` or game-thread invokes.
+
 Reset verifies a full live-score XML backup, invokes the mod's existing handler
 locally with a server-origin flag, then checks the saved XML and live list. It
 restores original state on failure where possible. Nexus-active/unknown and
 Quasar-cluster resets are refused before mutation. A successful reset rotates
 the stream and discards pre-reset announcements.
+
+## Background collection
+
+The worker polls each connected server every five seconds. Each server's poll
+runs independently, so a stalled server only holds its own poll. A server is
+not polled again until its previous poll finishes. Requests time out after 10
+seconds. When a snapshot is more than 15 seconds old, its status and the
+delivery status say "Scores are N s old; the server's game thread is busy."
+Buffered announcements in an old snapshot are still delivered. The age is
+measured against the Quasar host's clock, so keep host and server clocks synced.
 
 ## Quasar operations
 

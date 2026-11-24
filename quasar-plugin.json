@@ -1,7 +1,7 @@
 {
   "id": "owendb.koth",
   "displayName": "King of the Hill",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "entryAssembly": "Koth.Quasar.dll",
   "browserAssembly": "Koth.Browser.dll",
   "entryType": "Koth.Quasar.KothPlugin",

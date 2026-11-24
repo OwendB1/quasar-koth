@@ -11,6 +11,7 @@ using Koth.Contracts;
 namespace Koth.Magnetar
 {
     // All access to mod objects belongs on the simulation thread. No compile-time mod dependency.
+    // Request threads only read the immutable KothView published in Cache.
     internal sealed class KothRuntime
     {
         private const BindingFlags Members = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
@@ -21,7 +22,9 @@ namespace Koth.Magnetar
         internal Type SessionType { get; }
         internal MethodInfo PacketHandler { get; }
         internal string StreamId { get; private set; } = Guid.NewGuid().ToString("N");
+        internal KothSnapshotCache Cache { get; } = new KothSnapshotCache();
         private readonly Queue<KothEvent> events = new Queue<KothEvent>();
+        private KothEvent[]? eventCopy;
         private long sequence;
 
         internal KothRuntime(object core)
@@ -43,7 +46,7 @@ namespace Koth.Magnetar
                 throw new NotSupportedException("KOTH session score collection is incompatible.");
             serializer = new XmlSerializer(SessionType);
             // Probe the complete shape before reporting availability or enabling reset.
-            Read(new SnapshotRequest(), "");
+            Build("");
         }
 
         internal static bool AcceptPacket(bool fromServer) => fromServer;
@@ -55,12 +58,25 @@ namespace Koth.Magnetar
             if (text.Length == 0 || text == "clear") return;
             events.Enqueue(new KothEvent { Sequence = ++sequence, TimestampUtc = DateTime.UtcNow, Text = text });
             while (events.Count > KothProtocol.EventCapacity) events.Dequeue();
+            eventCopy = null;
         }
 
         internal KothSnapshot Read(SnapshotRequest request, string world)
         {
-            if (request.Version != KothProtocol.Version || request.AfterSequence < 0)
-                throw new ArgumentException("Unsupported KOTH request version or cursor.");
+            KothView.Validate(request);
+            return Refresh(world).For(request);
+        }
+
+        // Reads the mod once and publishes the copy for request threads.
+        internal KothView Refresh(string world)
+        {
+            var view = Build(world);
+            Cache.Publish(view);
+            return view;
+        }
+
+        private KothView Build(string world)
+        {
             var result = new KothSnapshot
             {
                 Available = true, Status = "Live scores; client reset packets blocked.", World = world,
@@ -88,16 +104,15 @@ namespace Koth.Magnetar
             }
             result.Scores = result.Scores.OrderBy(s => s.Planet, StringComparer.OrdinalIgnoreCase)
                 .ThenByDescending(s => s.Points).ThenBy(s => s.FactionTag, StringComparer.OrdinalIgnoreCase).ToList();
-            if (request.StreamId == StreamId)
-                result.Events = events.Where(e => e.Sequence > request.AfterSequence).Take(KothProtocol.EventPageSize).ToList();
-            return result;
+            // The buffer copy is shared by every view until the next capture or reset.
+            return new KothView(result, eventCopy ??= events.ToArray());
         }
 
         internal ResetResult Reset(ResetRequest request, string world, Action<string, string> write, Func<string, string> read)
         {
             if (request.Version != KothProtocol.Version || request.StreamId != StreamId || request.Confirmation != "RESET")
                 throw new ArgumentException("Refresh this world and confirm by typing RESET.");
-            if (!Read(new SnapshotRequest(), world).ResetSupported)
+            if (!Build(world).ResetSupported)
                 throw new InvalidOperationException("Nexus score replication prevents a safe standalone reset.");
             var session = Activator.CreateInstance(SessionType)!;
             sessionScores.SetValue(session, planets.GetValue(null), null);
@@ -128,7 +143,8 @@ namespace Koth.Magnetar
             }
             // Invalidate stale confirmations and retries before accepting another reset.
             StreamId = Guid.NewGuid().ToString("N");
-            events.Clear(); sequence = 0;
+            events.Clear(); sequence = 0; eventCopy = null;
+            // Read() republishes the cache, so polls see the new stream ID at once.
             return new ResetResult { BackupFile = backup, Snapshot = Read(new SnapshotRequest(), world) };
         }
 

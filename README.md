@@ -25,6 +25,15 @@ The connected server list also updates every five seconds; disconnected servers
 are removed and their pending requests are canceled. Unknown or incompatible
 mod versions produce a status message instead of guessed scores.
 
+Score reads never wait on the game thread. While Quasar polls a server, the
+companion copies its scores and announcements about once per second during the
+normal game update, and answers requests from that copy. If the game thread
+stalls, for example during a world save, the page shows
+"Scores are N s old; the server's game thread is busy." instead of an error.
+The copy is dropped after 30 seconds without requests, so an idle server does no
+extra work; the next read then waits for one game-thread update. Resets still
+run on the game thread.
+
 The page uses Quasar's normal full-width content area and shared page-heading
 and panel styles. It adds no separate page width cap or outer padding. There is
 no server dropdown or manual Refresh button. Collapse a panel to stop polling
@@ -119,6 +128,8 @@ files. Incompatible versions are reported and should not be treated as protected
 
 The companion retains the most recent 256 announcements per world/score epoch;
 Quasar polls every five seconds, reading up to 32 events per server per poll.
+Servers are polled concurrently, so a stalled server does not delay
+announcements from the others, and a server never has two polls at once.
 Failed Discord posts retain the cursor and retry while events remain buffered.
 First observation, enabling announcements, a new world, and a successful reset
 establish a baseline rather than replaying old messages. Persisted cursors avoid
@@ -161,10 +172,11 @@ both with the manifest and its stylesheet directory. Quasar serves the browser
 assembly under the signed-in panel and runs the same `/koth` page locally and
 at hosted panel paths.
 
-Tests exercise mod reflection, live score projection, Harmony packet rejection,
-backup failure and rollback, stale reset protection, Nexus/cluster refusal,
-dedicated-channel delivery, retries, cursor persistence, operation policies, and
-viewer rendering. They use a mod-shape fixture; they do not replace a live game
+Tests exercise mod reflection, live score projection, the off-thread snapshot
+cache and its event filtering, Harmony packet rejection, backup failure and
+rollback, stale reset protection, Nexus/cluster refusal, dedicated-channel
+delivery, retries, cursor persistence, concurrent polling, old-snapshot
+reporting, operation policies, and viewer rendering. They use a mod-shape fixture; they do not replace a live game
 acceptance test. No Quasar service or game server is launched by these tests.
 
 To check the packaged browser UI, run Quasar's `Quasar.Wasm.DashboardChecks`

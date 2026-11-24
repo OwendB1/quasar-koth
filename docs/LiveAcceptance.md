@@ -12,6 +12,10 @@ The plugin does not launch Quasar or a game server during automated tests.
    output before and after a world save. Collapse/reopen a panel to confirm a
    fresh read. Connect/disconnect a server and confirm its panel appears or is
    removed without a page reload.
+   Run `/save` on a large world (or otherwise stall the game thread for more
+   than 15 seconds). The panel should show "Scores are N s old; the server's
+   game thread is busy." rather than an error, then recover by itself. Quasar's
+   log should show no KOTH "did not respond" errors for the other servers.
 3. Save a dedicated KOTH channel in the bot's configured guild. Test it, then
    trigger a capture. Confirm delivery identifies the correct server. Confirm
    normal Quasar bot functions still work in their existing channels.

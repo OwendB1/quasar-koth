@@ -35,6 +35,8 @@ namespace KingOfTheHill
             Planets = [new() { Scores = [new(), new() { FactionId = 84, Points = 24, FactionTag = "TOP" }] }];
             FailSave = false; Resets = 0; NexusAPIns.NexusAPI.Running = false;
         }
+        // Any mod read now throws, so an answer proves it came from the cached copy.
+        internal static void Break() => Planets = null!;
         [MethodImpl(MethodImplOptions.NoInlining)]
         private void PluginHandleIncomingPacket(ushort comId, byte[] msg, ulong id, bool reliable)
         {

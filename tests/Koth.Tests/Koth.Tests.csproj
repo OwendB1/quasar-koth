@@ -9,6 +9,7 @@
     <None Include="../../quasar-plugin.json" Link="quasar-plugin.json" CopyToOutputDirectory="PreserveNewest" />
     <ProjectReference Include="../../src/Koth.Quasar/Koth.Quasar.csproj" />
     <Compile Include="../../src/Koth.Magnetar/KothRuntime.cs" Link="Companion/KothRuntime.cs" />
+    <Compile Include="../../src/Koth.Magnetar/KothSnapshotCache.cs" Link="Companion/KothSnapshotCache.cs" />
     <PackageReference Include="Lib.Harmony" Version="2.4.2" />
   </ItemGroup>
 </Project>
